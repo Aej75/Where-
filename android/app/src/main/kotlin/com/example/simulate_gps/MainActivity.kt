@@ -14,12 +14,19 @@ class MainActivity: FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler {
             call, result ->
             if (call.method == "startMockLocation") {
-                val lat = call.argument<Double>("lat")
-                val lon = call.argument<Double>("lon")
-                if (lat != null && lon != null) {
+                val startLat = call.argument<Double>("startLat")
+                val startLon = call.argument<Double>("startLon")
+                val endLat = call.argument<Double>("endLat")
+                val endLon = call.argument<Double>("endLon")
+                val speed = call.argument<Double>("speed")
+
+                if (startLat != null && startLon != null && endLat != null && endLon != null && speed != null) {
                     val intent = Intent(this, MockLocationService::class.java)
-                    intent.putExtra("lat", lat)
-                    intent.putExtra("lon", lon)
+                    intent.putExtra("startLat", startLat)
+                    intent.putExtra("startLon", startLon)
+                    intent.putExtra("endLat", endLat)
+                    intent.putExtra("endLon", endLon)
+                    intent.putExtra("speed", speed)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         startForegroundService(intent)
                     } else {
@@ -27,7 +34,7 @@ class MainActivity: FlutterActivity() {
                     }
                     result.success(null)
                 } else {
-                    result.error("INVALID_ARGUMENTS", "Invalid latitude or longitude", null)
+                    result.error("INVALID_ARGUMENTS", "Missing latitude, longitude or speed arguments", null)
                 }
             } else if (call.method == "stopMockLocation") {
                 val intent = Intent(this, MockLocationService::class.java)

@@ -3,8 +3,8 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:flutter/services.dart';
-import 'package:provider/provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:provider/provider.dart';
 
 void main() {
   runApp(MyApp());
@@ -27,18 +27,25 @@ class MyApp extends StatelessWidget {
 }
 
 class LocationProvider with ChangeNotifier {
-  LatLng? _selectedLocation;
+  LatLng? _startLocation;
+  LatLng? _endLocation;
   LatLng? _currentLocation;
   bool _isMocking = false;
   bool _useFakeLocation = true;
 
-  LatLng? get selectedLocation => _selectedLocation;
+  LatLng? get startLocation => _startLocation;
+  LatLng? get endLocation => _endLocation;
   LatLng? get currentLocation => _currentLocation;
   bool get isMocking => _isMocking;
   bool get useFakeLocation => _useFakeLocation;
 
-  void setSelectedLocation(LatLng location) {
-    _selectedLocation = location;
+  void setStartLocation(LatLng location) {
+    _startLocation = location;
+    notifyListeners();
+  }
+
+  void setEndLocation(LatLng location) {
+    _endLocation = location;
     notifyListeners();
   }
 
@@ -59,6 +66,12 @@ class LocationProvider with ChangeNotifier {
     }
     notifyListeners();
   }
+
+  void clearLocations() {
+    _startLocation = null;
+    _endLocation = null;
+    notifyListeners();
+  }
 }
 
 class MapScreen extends StatefulWidget {
@@ -70,7 +83,6 @@ class _MapScreenState extends State<MapScreen> {
   static const platform = MethodChannel('com.example.simulate_gps/mock_location');
 
   final MapController _mapController = MapController();
-  List<Marker> _markers = [];
 
   @override
   void initState() {
@@ -113,17 +125,14 @@ class _MapScreenState extends State<MapScreen> {
     final locationProvider = Provider.of<LocationProvider>(context, listen: false);
     if (!locationProvider.useFakeLocation) return;
 
-    locationProvider.setSelectedLocation(location);
-    setState(() {
-      _markers = [
-        Marker(
-          width: 80.0,
-          height: 80.0,
-          point: location,
-          child: Icon(Icons.location_on, color: Colors.red, size: 50.0),
-        ),
-      ];
-    });
+    if (locationProvider.startLocation == null) {
+      locationProvider.setStartLocation(location);
+    } else if (locationProvider.endLocation == null) {
+      locationProvider.setEndLocation(location);
+    } else {
+      locationProvider.clearLocations();
+      locationProvider.setStartLocation(location);
+    }
   }
 
   Future<void> _toggleMockLocation() async {
@@ -131,17 +140,25 @@ class _MapScreenState extends State<MapScreen> {
     if (locationProvider.isMocking) {
       await _stopMockLocation();
     } else {
-      if (locationProvider.useFakeLocation && locationProvider.selectedLocation != null) {
-        await _startMockLocation(locationProvider.selectedLocation!);
+      if (locationProvider.useFakeLocation &&
+          locationProvider.startLocation != null &&
+          locationProvider.endLocation != null) {
+        await _startMockLocation(
+          locationProvider.startLocation!,
+          locationProvider.endLocation!,
+        );
       }
     }
   }
 
-  Future<void> _startMockLocation(LatLng location) async {
+  Future<void> _startMockLocation(LatLng start, LatLng end) async {
     try {
       await platform.invokeMethod('startMockLocation', {
-        'lat': location.latitude,
-        'lon': location.longitude,
+        'startLat': start.latitude,
+        'startLon': start.longitude,
+        'endLat': end.latitude,
+        'endLon': end.longitude,
+        'speed': 5.0, // Example speed: 5 meters per second
       });
       Provider.of<LocationProvider>(context, listen: false).setMocking(true);
     } on PlatformException catch (e) {
@@ -178,9 +195,7 @@ class _MapScreenState extends State<MapScreen> {
                       locationProvider.setUseFakeLocation(value);
                       if (!value) {
                         _stopMockLocation();
-                        setState(() {
-                          _markers.clear();
-                        });
+                        locationProvider.clearLocations();
                       }
                     },
                   ),
@@ -204,7 +219,9 @@ class _MapScreenState extends State<MapScreen> {
   @override
   Widget build(BuildContext context) {
     final locationProvider = Provider.of<LocationProvider>(context);
-    final bool canSimulate = locationProvider.useFakeLocation && locationProvider.selectedLocation != null;
+    final bool canSimulate = locationProvider.useFakeLocation &&
+        locationProvider.startLocation != null &&
+        locationProvider.endLocation != null;
 
     return Scaffold(
       appBar: AppBar(
@@ -229,10 +246,26 @@ class _MapScreenState extends State<MapScreen> {
               TileLayer(
                 urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
               ),
-              if (locationProvider.useFakeLocation)
+              if (locationProvider.useFakeLocation) ...[
                 MarkerLayer(
-                  markers: _markers,
+                  markers: [
+                    if (locationProvider.startLocation != null)
+                      Marker(
+                        width: 80.0,
+                        height: 80.0,
+                        point: locationProvider.startLocation!,
+                        child: Icon(Icons.location_on, color: Colors.red, size: 50.0),
+                      ),
+                    if (locationProvider.endLocation != null)
+                      Marker(
+                        width: 80.0,
+                        height: 80.0,
+                        point: locationProvider.endLocation!,
+                        child: Icon(Icons.location_on, color: Colors.blue, size: 50.0),
+                      ),
+                  ],
                 ),
+              ],
               if (locationProvider.currentLocation != null)
                 MarkerLayer(
                   markers: [
@@ -254,9 +287,9 @@ class _MapScreenState extends State<MapScreen> {
               child: Chip(
                 label: Text(
                   locationProvider.isMocking
-                      ? 'Simulating Location'
+                      ? 'Simulating Movement'
                       : locationProvider.useFakeLocation
-                          ? 'Using Fake Location (Paused)'
+                          ? 'Select Start & End Points'
                           : 'Using Real Location',
                 ),
                 backgroundColor: locationProvider.isMocking ? Colors.green : Colors.orange,
