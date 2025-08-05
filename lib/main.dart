@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
@@ -27,25 +28,34 @@ class MyApp extends StatelessWidget {
 }
 
 class LocationProvider with ChangeNotifier {
-  LatLng? _startLocation;
-  LatLng? _endLocation;
+  List<LatLng> _waypoints = [];
   LatLng? _currentLocation;
   bool _isMocking = false;
   bool _useFakeLocation = true;
+  bool _loop = false;
+  bool _reverseLoop = false;
+  int _interval = 0; // Default interval is 0 seconds
 
-  LatLng? get startLocation => _startLocation;
-  LatLng? get endLocation => _endLocation;
+  List<LatLng> get waypoints => _waypoints;
   LatLng? get currentLocation => _currentLocation;
   bool get isMocking => _isMocking;
   bool get useFakeLocation => _useFakeLocation;
+  bool get loop => _loop;
+  bool get reverseLoop => _reverseLoop;
+  int get interval => _interval;
 
-  void setStartLocation(LatLng location) {
-    _startLocation = location;
+  void addWaypoint(LatLng location) {
+    _waypoints.add(location);
     notifyListeners();
   }
 
-  void setEndLocation(LatLng location) {
-    _endLocation = location;
+  void removeWaypoint(int index) {
+    _waypoints.removeAt(index);
+    notifyListeners();
+  }
+
+  void clearWaypoints() {
+    _waypoints.clear();
     notifyListeners();
   }
 
@@ -67,9 +77,24 @@ class LocationProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  void clearLocations() {
-    _startLocation = null;
-    _endLocation = null;
+  void setLoop(bool loop) {
+    _loop = loop;
+    if (loop) {
+      _reverseLoop = false;
+    }
+    notifyListeners();
+  }
+
+  void setReverseLoop(bool reverseLoop) {
+    _reverseLoop = reverseLoop;
+    if (reverseLoop) {
+      _loop = false;
+    }
+    notifyListeners();
+  }
+
+  void setInterval(int seconds) {
+    _interval = seconds;
     notifyListeners();
   }
 }
@@ -80,7 +105,9 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
-  static const platform = MethodChannel('com.example.simulate_gps/mock_location');
+  static const platform = MethodChannel(
+    'com.example.simulate_gps/mock_location',
+  );
 
   final MapController _mapController = MapController();
 
@@ -114,55 +141,70 @@ class _MapScreenState extends State<MapScreen> {
 
     if (permission == LocationPermission.deniedForever) {
       return Future.error(
-          'Location permissions are permanently denied, we cannot request permissions.');
+        'Location permissions are permanently denied, we cannot request permissions.',
+      );
     }
 
     final position = await Geolocator.getCurrentPosition();
-    Provider.of<LocationProvider>(context, listen: false).setCurrentLocation(position);
+    Provider.of<LocationProvider>(
+      context,
+      listen: false,
+    ).setCurrentLocation(position);
   }
 
   void _onTap(TapPosition _, LatLng location) {
-    final locationProvider = Provider.of<LocationProvider>(context, listen: false);
+    final locationProvider = Provider.of<LocationProvider>(
+      context,
+      listen: false,
+    );
     if (!locationProvider.useFakeLocation) return;
 
-    if (locationProvider.startLocation == null) {
-      locationProvider.setStartLocation(location);
-    } else if (locationProvider.endLocation == null) {
-      locationProvider.setEndLocation(location);
-    } else {
-      locationProvider.clearLocations();
-      locationProvider.setStartLocation(location);
-    }
+    locationProvider.addWaypoint(location);
   }
 
   Future<void> _toggleMockLocation() async {
-    final locationProvider = Provider.of<LocationProvider>(context, listen: false);
+    final locationProvider = Provider.of<LocationProvider>(
+      context,
+      listen: false,
+    );
     if (locationProvider.isMocking) {
-      await _stopMockLocation();
+      await _pauseMockLocation();
     } else {
       if (locationProvider.useFakeLocation &&
-          locationProvider.startLocation != null &&
-          locationProvider.endLocation != null) {
-        await _startMockLocation(
-          locationProvider.startLocation!,
-          locationProvider.endLocation!,
-        );
+          locationProvider.waypoints.isNotEmpty) {
+        await _startMockLocation();
       }
     }
   }
 
-  Future<void> _startMockLocation(LatLng start, LatLng end) async {
+  Future<void> _startMockLocation() async {
+    final locationProvider = Provider.of<LocationProvider>(
+      context,
+      listen: false,
+    );
     try {
       await platform.invokeMethod('startMockLocation', {
-        'startLat': start.latitude,
-        'startLon': start.longitude,
-        'endLat': end.latitude,
-        'endLon': end.longitude,
+        'waypoints':
+            locationProvider.waypoints
+                .map((p) => {'lat': p.latitude, 'lon': p.longitude})
+                .toList(),
+        'loop': locationProvider.loop,
+        'reverseLoop': locationProvider.reverseLoop,
+        'interval': locationProvider.interval,
         'speed': 5.0, // Example speed: 5 meters per second
       });
       Provider.of<LocationProvider>(context, listen: false).setMocking(true);
     } on PlatformException catch (e) {
       print("Failed to start mock location: '${e.message}'.");
+    }
+  }
+
+  Future<void> _pauseMockLocation() async {
+    try {
+      await platform.invokeMethod('pauseMockLocation');
+      Provider.of<LocationProvider>(context, listen: false).setMocking(false);
+    } on PlatformException catch (e) {
+      print("Failed to pause mock location: '${e.message}'.");
     }
   }
 
@@ -175,42 +217,12 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  void _showSettingsPanel() {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) {
-        return Consumer<LocationProvider>(
-          builder: (context, locationProvider, child) {
-            return Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Text('Settings', style: Theme.of(context).textTheme.titleLarge),
-                  const SizedBox(height: 16),
-                  SwitchListTile(
-                    title: const Text('Use Fake Location'),
-                    value: locationProvider.useFakeLocation,
-                    onChanged: (bool value) {
-                      locationProvider.setUseFakeLocation(value);
-                      if (!value) {
-                        _stopMockLocation();
-                        locationProvider.clearLocations();
-                      }
-                    },
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
   void _goToMyLocation() async {
     await _determinePosition();
-    final locationProvider = Provider.of<LocationProvider>(context, listen: false);
+    final locationProvider = Provider.of<LocationProvider>(
+      context,
+      listen: false,
+    );
     if (locationProvider.currentLocation != null) {
       _mapController.move(locationProvider.currentLocation!, 15.0);
     }
@@ -219,20 +231,25 @@ class _MapScreenState extends State<MapScreen> {
   @override
   Widget build(BuildContext context) {
     final locationProvider = Provider.of<LocationProvider>(context);
-    final bool canSimulate = locationProvider.useFakeLocation &&
-        locationProvider.startLocation != null &&
-        locationProvider.endLocation != null;
+    final bool canSimulate =
+        locationProvider.useFakeLocation &&
+        locationProvider.waypoints.isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('SauniTracker'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: _showSettingsPanel,
+            icon: Icon(Icons.delete_forever),
+
+            onPressed: () {
+              locationProvider.clearWaypoints();
+            },
           ),
         ],
       ),
+
+      drawer: SettingsDrawer(),
       body: Stack(
         children: [
           FlutterMap(
@@ -248,22 +265,37 @@ class _MapScreenState extends State<MapScreen> {
               ),
               if (locationProvider.useFakeLocation) ...[
                 MarkerLayer(
-                  markers: [
-                    if (locationProvider.startLocation != null)
-                      Marker(
-                        width: 80.0,
-                        height: 80.0,
-                        point: locationProvider.startLocation!,
-                        child: Icon(Icons.location_on, color: Colors.red, size: 50.0),
-                      ),
-                    if (locationProvider.endLocation != null)
-                      Marker(
-                        width: 80.0,
-                        height: 80.0,
-                        point: locationProvider.endLocation!,
-                        child: Icon(Icons.location_on, color: Colors.blue, size: 50.0),
-                      ),
-                  ],
+                  markers:
+                      locationProvider.waypoints.asMap().entries.map((entry) {
+                        final index = entry.key;
+                        final point = entry.value;
+                        final color =
+                            Colors.primaries[index % Colors.accents.length];
+                        final letter = String.fromCharCode(65 + index);
+
+                        return Marker(
+                          width: 80.0,
+                          height: 80.0,
+                          point: point,
+                          child: Column(
+                            children: [
+                              Text(
+                                letter,
+                                style: TextStyle(
+                                  color: color,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 20,
+                                ),
+                              ),
+                              Icon(
+                                Icons.face_3_sharp,
+                                color: color,
+                                size: 30.0,
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
                 ),
               ],
               if (locationProvider.currentLocation != null)
@@ -289,10 +321,11 @@ class _MapScreenState extends State<MapScreen> {
                   locationProvider.isMocking
                       ? 'Simulating Movement'
                       : locationProvider.useFakeLocation
-                          ? 'Select Start & End Points'
-                          : 'Using Real Location',
+                      ? 'Select Waypoints'
+                      : 'Using Real Location',
                 ),
-                backgroundColor: locationProvider.isMocking ? Colors.green : Colors.orange,
+                backgroundColor:
+                    locationProvider.isMocking ? Colors.green : Colors.orange,
                 labelStyle: const TextStyle(color: Colors.white),
               ),
             ),
@@ -310,12 +343,93 @@ class _MapScreenState extends State<MapScreen> {
           const SizedBox(height: 16),
           FloatingActionButton(
             heroTag: 'simulate',
-            onPressed: canSimulate || locationProvider.isMocking ? _toggleMockLocation : null,
-            backgroundColor: canSimulate || locationProvider.isMocking
-                ? (locationProvider.isMocking ? Colors.red : Colors.green)
-                : Colors.grey,
-            child: Icon(locationProvider.isMocking ? Icons.stop : Icons.play_arrow),
+            onPressed:
+                canSimulate || locationProvider.isMocking
+                    ? _toggleMockLocation
+                    : null,
+            backgroundColor:
+                canSimulate || locationProvider.isMocking
+                    ? (locationProvider.isMocking ? Colors.red : Colors.green)
+                    : Colors.grey,
+            child: Icon(
+              locationProvider.isMocking ? Icons.stop : Icons.play_arrow,
+            ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class SettingsDrawer extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final locationProvider = Provider.of<LocationProvider>(context);
+    final duration = Duration(seconds: locationProvider.interval);
+
+    return Drawer(
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: <Widget>[
+          DrawerHeader(
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            child: Text(
+              'Settings',
+              style: TextStyle(color: Colors.white, fontSize: 24),
+            ),
+          ),
+          SwitchListTile(
+            title: const Text('Use Fake Location'),
+            value: locationProvider.useFakeLocation,
+            onChanged: (bool value) {
+              locationProvider.setUseFakeLocation(value);
+              if (!value) {
+                // Assuming _stopMockLocation is available in this scope
+                // _stopMockLocation();
+                locationProvider.clearWaypoints();
+              }
+            },
+          ),
+          SwitchListTile(
+            title: const Text('Loop'),
+            value: locationProvider.loop,
+            onChanged: (bool value) {
+              locationProvider.setLoop(value);
+            },
+          ),
+          SwitchListTile(
+            title: const Text('Reverse Loop'),
+            value: locationProvider.reverseLoop,
+            onChanged: (bool value) {
+              locationProvider.setReverseLoop(value);
+            },
+          ),
+          ListTile(
+            title: const Text('Interval'),
+            subtitle: Text(
+              '${duration.inHours}h ${duration.inMinutes.remainder(60)}m ${duration.inSeconds.remainder(60)}s',
+            ),
+            onTap: () {
+              showModalBottomSheet(
+                context: context,
+                builder: (BuildContext context) {
+                  return Container(
+                    height: 250,
+                    child: CupertinoTimerPicker(
+                      mode: CupertinoTimerPickerMode.hms,
+                      initialTimerDuration: duration,
+                      onTimerDurationChanged: (Duration newDuration) {
+                        locationProvider.setInterval(newDuration.inSeconds);
+                      },
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+          
         ],
       ),
     );
