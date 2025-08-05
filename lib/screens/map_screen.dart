@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -26,8 +25,6 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _requestPermissions();
-    _determinePosition();
   }
 
   @override
@@ -39,19 +36,9 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    if (state == AppLifecycleState.resumed) {
-      // When the app resumes, check the mocking status
-      final locationProvider = Provider.of<LocationProvider>(
-        context,
-        listen: false,
-      );
-      // If the app resumes and mocking was active, stop it to allow user control
-      if (locationProvider.isMocking) {
-        _stopMockLocation();
-      }
-    }
+    // The LocationProvider already handles state loading on initialization.
+    // No need for explicit actions here related to mocking state.
   }
-
 
   Future<void> _requestPermissions() async {
     await Permission.location.request();
@@ -63,28 +50,35 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
 
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      return Future.error('Location services are disabled.');
+      // Location services are disabled, show a message to the user.
+      print('Location services are disabled.');
+      return;
     }
 
     permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        return Future.error('Location permissions are denied');
-      }
+      // Permissions are denied, do not request automatically here.
+      print('Location permissions are denied.');
+      return;
     }
 
     if (permission == LocationPermission.deniedForever) {
-      return Future.error(
-        'Location permissions are permanently denied, we cannot request permissions.',
-      );
+      // Permissions are permanently denied, show a message to the user.
+      print('Location permissions are permanently denied.');
+      return;
     }
 
-    final position = await Geolocator.getCurrentPosition();
-    Provider.of<LocationProvider>(
-      context,
-      listen: false,
-    ).setCurrentLocation(position);
+    try {
+      final position = await Geolocator.getCurrentPosition();
+      if (mounted) {
+        Provider.of<LocationProvider>(
+          context,
+          listen: false,
+        ).setCurrentLocation(position);
+      }
+    } catch (e) {
+      print('Error getting current position: $e');
+    }
   }
 
   void _onTap(TapPosition _, LatLng location) {
@@ -92,7 +86,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
       context,
       listen: false,
     );
-    if (!locationProvider.useFakeLocation) return;
+    if (!locationProvider.useFakeLocation || locationProvider.isMocking) return;
 
     locationProvider.addWaypoint(location);
   }
@@ -153,13 +147,36 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   }
 
   void _goToMyLocation() async {
-    await _determinePosition();
-    final locationProvider = Provider.of<LocationProvider>(
-      context,
-      listen: false,
-    );
-    if (locationProvider.currentLocation != null) {
-      _mapController.move(locationProvider.currentLocation!, 15.0);
+    try {
+      // Request permissions when the user explicitly asks for their location
+      final status = await Permission.location.request();
+
+      if (status.isGranted) {
+        await _determinePosition();
+        final locationProvider = Provider.of<LocationProvider>(
+          context,
+          listen: false,
+        );
+        if (locationProvider.currentLocation != null) {
+          _mapController.move(locationProvider.currentLocation!, 15.0);
+        }
+      } else if (status.isDenied || status.isPermanentlyDenied) {
+        // Optionally, show a dialog or snackbar to inform the user
+        // that permissions are needed.
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Location permissions are required to show your current location.'),
+          ),
+        );
+      }
+    } on PlatformException catch (e) {
+      // Handle the PlatformException, likely due to activity not being ready
+      print("PlatformException during permission request: ${e.message}");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not request location permissions. Please try again.'),
+        ),
+      );
     }
   }
 
@@ -171,14 +188,44 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
         locationProvider.waypoints.isNotEmpty;
 
     return Scaffold(
-      appBar: AppBar(centerTitle: true,
+      appBar: AppBar(
+        centerTitle: true,
         title: const Text('Sauni Tracker'),
         actions: [
           IconButton(
             icon: Icon(Icons.delete_forever),
 
-            onPressed: () {
-              locationProvider.clearWaypoints();
+            onPressed: () async {
+              final bool confirm =
+                  await showDialog(
+                    context: context,
+                    builder: (BuildContext context) {
+                      return AlertDialog(
+                        title: const Text('Clear Waypoints'),
+                        content: const Text(
+                          'Are you sure you want to clear all waypoints? This will stop any ongoing simulation.',
+                        ),
+                        actions: <Widget>[
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(false),
+                            child: const Text('Cancel'),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(true),
+                            child: const Text('Clear'),
+                          ),
+                        ],
+                      );
+                    },
+                  ) ??
+                  false;
+
+              if (confirm) {
+                if (locationProvider.isMocking) {
+                  await _stopMockLocation();
+                }
+                locationProvider.clearWaypoints();
+              }
             },
           ),
         ],
@@ -247,12 +294,13 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
             ],
           ),
           Positioned(
-            bottom: 16,
+            top: 16,
             left: 0,
             right: 0,
             child: Center(
               child: Chip(
                 label: Text(
+                  style: TextStyle(fontWeight: FontWeight.w700),
                   locationProvider.isMocking
                       ? 'Simulating Movement'
                       : locationProvider.useFakeLocation
@@ -261,6 +309,18 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                 ),
                 backgroundColor:
                     locationProvider.isMocking ? Colors.green : Colors.orange,
+                labelStyle: const TextStyle(color: Colors.white),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 16,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Chip(
+                label: Text('Waypoints: ${locationProvider.waypoints.length}'),
+                backgroundColor: Colors.blueGrey,
                 labelStyle: const TextStyle(color: Colors.white),
               ),
             ),

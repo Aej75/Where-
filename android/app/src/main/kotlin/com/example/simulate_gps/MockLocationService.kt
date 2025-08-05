@@ -215,10 +215,30 @@ class MockLocationService : Service() {
             val channel = NotificationChannel("mock_location_service", "Mock Location Service", NotificationManager.IMPORTANCE_DEFAULT)
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
+
+        val notificationIntent = Intent(this, com.example.simulate_gps.MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+
+        val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
+        } else {
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT
+        }
+
+        val pendingIntent = android.app.PendingIntent.getActivity(
+            this,
+            0,
+            notificationIntent,
+            pendingIntentFlags
+        )
+
         return NotificationCompat.Builder(this, "mock_location_service")
             .setContentTitle("Simulating Movement")
             .setContentText("Your location is being simulated along a path.")
             .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true) // Makes the notification non-dismissible by swiping
             .build()
     }
 

@@ -1,4 +1,3 @@
-
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:latlong2/latlong.dart';
@@ -13,7 +12,15 @@ class LocalStorageService {
 
   Future<void> saveWaypoints(List<LatLng> waypoints) async {
     final prefs = await SharedPreferences.getInstance();
-    final List<String> jsonList = waypoints.map((p) => jsonEncode({'latitude': p.latitude, 'longitude': p.longitude})).toList();
+    final List<String> jsonList =
+        waypoints
+            .map(
+              (p) => jsonEncode({
+                'latitude': p.latitude,
+                'longitude': p.longitude,
+              }),
+            )
+            .toList();
     await prefs.setStringList(_waypointsKey, jsonList);
   }
 
