@@ -1,16 +1,38 @@
-# simulate_gps
+# Mock GPS Location App
 
-A new Flutter project.
+**Mock GPS Location** is an Android app designed for developers and testers to simulate GPS locations using Android’s built-in mock location system.
 
-## Getting Started
+## Features
 
-This project is a starting point for a Flutter application.
+- Simulate any GPS location on your Android device
+- Clean and simple user interface
+- No root access required
+- Compatible with Android’s Developer Options
 
-A few resources to get you started if this is your first Flutter project:
+## How to Use
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+1. Enable **Developer Options** on your Android device
+2. Set this app as the **Mock Location App**
+3. Open the app and select a location
+4. Tap **Set Location** to start simulating
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Intended Use
+
+This app is created **only for development and testing purposes**. Common use cases include:
+
+- Testing location-based features in apps
+- Simulating different geographic scenarios
+- Demonstrating app functionality in multiple locations
+
+## Disclaimer
+
+This app must **not** be used for:
+- Misleading or deceiving others about your location
+- Circumventing geographic restrictions
+- Cheating in games or location-based apps
+
+Use of this app in violation of any terms of service or local laws is strictly your responsibility.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
