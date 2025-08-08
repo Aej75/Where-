@@ -10,6 +10,10 @@ import com.example.simulate_gps.LatLng
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "com.example.simulate_gps/mock_location"
 
+    override fun shouldDestroyEngineWithHost(): Boolean {
+        return false
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler {
