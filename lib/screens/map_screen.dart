@@ -36,8 +36,17 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    // The LocationProvider already handles state loading on initialization.
-    // No need for explicit actions here related to mocking state.
+    if (state == AppLifecycleState.resumed) {
+      final locationProvider = Provider.of<LocationProvider>(
+        context,
+        listen: false,
+      );
+      // If the app resumes and the Flutter state says it's not mocking,
+      // ensure the native service is stopped to dismiss the notification.
+      if (!locationProvider.isMocking) {
+        _stopMockLocation();
+      }
+    }
   }
 
   Future<void> _requestPermissions() async {
